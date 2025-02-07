@@ -22,7 +22,7 @@ class Layer(nn.Module):
             dropout: float,
             feed_forward_hidden_dim: int
     ):
-        super().__init__(self)
+        super().__init__()
 
         self.atn_layer_norm = LayerNorm(model_dim)
         self.attention = MultiHeadedAttention(model_dim, num_heads, dropout)
@@ -58,7 +58,7 @@ class Model(nn.Module):
             num_heads: int,
             feed_forward_hidden_dim: int
     ):
-        super().__init__(self)
+        super().__init__()
         self.num_layers = num_layers
 
         self.embed = Embedding(vocab_size, model_dim)
@@ -85,7 +85,7 @@ class Model(nn.Module):
             float32
                 """
 
-        batch_size, seq_len, model_dim = x.shape
+        batch_size, seq_len = x.shape
 
         # Get embeddings.
         token_embeddings = self.embed(x)

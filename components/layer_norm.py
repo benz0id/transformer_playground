@@ -1,6 +1,8 @@
 import torch
 from torch import nn
+from utils.log_utils import setup_logger
 
+logger = setup_logger('layer_norm')
 
 class LayerNorm(nn.Module):
     """
@@ -17,6 +19,8 @@ class LayerNorm(nn.Module):
 
         # Small number to prevent division by zero.
         self.eps = eps
+        
+        logger.debug(f"Initialized LayerNorm with model_dim={model_dim}, eps={eps}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -28,9 +32,18 @@ class LayerNorm(nn.Module):
             (batch_size, seq_len, model_dim)
             float32
         """
+        logger.debug(f"Input tensor shape: {x.shape}")
+        
         mean = x.mean(-1, keepdim=True)
-        # QUESTION whether or not to use Bessel's correction.
-        std = x.std(-1, keepdim=True, unbiased=False) # Do not use Bessel's correction.
-        return self.gamma * (x - mean) / (std + self.eps) + self.beta
-
-
+        std = x.std(-1, keepdim=True, unbiased=False)  # Do not use Bessel's correction.
+        
+        logger.debug(f"Mean shape: {mean.shape}, Std shape: {std.shape}")
+        
+        # Check for potential numerical instability
+        if torch.any(std < self.eps):
+            logger.warning("Very small standard deviation detected, potential numerical instability")
+        
+        normalized = self.gamma * (x - mean) / (std + self.eps) + self.beta
+        logger.debug(f"Output tensor shape: {normalized.shape}")
+        
+        return normalized

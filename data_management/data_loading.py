@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 from typing import List, Any, Iterator, Union
 
@@ -6,6 +7,9 @@ from tqdm import tqdm
 import torch
 from Bio import SeqIO
 
+from utils.log_utils import setup_logger
+
+logger = setup_logger('data_loading')
 
 class SequenceDataset(torch.utils.data.Dataset):
 
@@ -79,48 +83,32 @@ class BucketingSampler(Sampler):
         self.shuffle = shuffle          # Whether to shuffle data before batching
         self.chunk_size = chunk_size    # The number of samples per chunk
         # Prepare the batches
-        self.batches = self._prepare_batches()
+        self._prepare_batches()
 
-    def _prepare_batches(self) -> List[List[int]]:
+
+    def _prepare_batches(self):
         """
         Prepares batches of indices.
 
         Returns:
             A list of batches, where each batch is a list of indices.
         """
-        # Get indices of all data samples
-        indices: List[int] = list(range(len(self.data_source)))
         # Get lengths of sequences; assumes data_source has a 'lengths' attribute
-        lengths: List[int] = self.data_source.lengths
+        lengths = self.data_source.lengths
 
-        # If shuffle is True, shuffle the indices
-        if self.shuffle:
-            # Generate a random permutation of indices
-            rand_perm = torch.randperm(len(indices))
-            # Reorder indices according to the random permutation
-            indices = [indices[i] for i in rand_perm]
+        len_to_inds = {}
+        for ind, length in tqdm(enumerate(lengths), desc='Binning sequences'):
+            if length in len_to_inds:
+                len_to_inds[length].append(ind)
+            else:
+                len_to_inds[length] = [ind]
 
-        # Divide indices into chunks of size 'chunk_size'
-        chunks: List[List[int]] = [
-            indices[i:i + self.chunk_size] for i in range(0, len(indices), self.chunk_size)
-        ]
+        self.ordered_inds = []
+        for length in tqdm(len_to_inds, desc='Building index list'):
+            self.ordered_inds.extend(len_to_inds[length])
 
-        batches: List[List[int]] = []
+        self.batch_inds = list(range(0, len(lengths) // self.batch_size))
 
-        for chunk in chunks:
-            # Get the sequence lengths for each index in the chunk
-            chunk_lengths: List[int] = [lengths[idx] for idx in chunk]
-            # Sort the chunk indices by sequence length (ascending order)
-            sorted_chunk: List[int] = [
-                x for _, x in sorted(zip(chunk_lengths, chunk), key=lambda pair: pair[0])
-            ]
-
-            # Divide the sorted chunk into batches of size 'batch_size'
-            for i in range(0, len(sorted_chunk), self.batch_size):
-                batch: List[int] = sorted_chunk[i:i + self.batch_size]
-                batches.append(batch)
-
-        return batches  # List of batches, where each batch is a list of indices
 
     def __iter__(self) -> Iterator[List[int]]:
         """
@@ -129,16 +117,17 @@ class BucketingSampler(Sampler):
         Yields:
             Batches of indices, where each batch is a list of indices.
         """
+        inds = self.batch_inds[:]
         if self.shuffle:
-            # Shuffle the order of batches
-            rand_perm = torch.randperm(len(self.batches))
-            batches: List[List[int]] = [self.batches[i] for i in rand_perm]
-        else:
-            batches = self.batches
+            logger.info('Shuffling batch indices.')
+            random.shuffle(inds)
 
         # Yield each batch
-        for batch in batches:
-            yield batch
+        while inds:
+            ind = inds.pop()
+            start = ind * self.batch_size
+            stop = (ind + 1) * self.batch_size
+            yield self.ordered_inds[start: stop]
 
     def __len__(self) -> int:
         """
@@ -148,3 +137,18 @@ class BucketingSampler(Sampler):
             The total number of batches.
         """
         return len(self.batches)
+
+
+class InfiniteDataLoader:
+    def __init__(self, dataloader):
+        self.dataloader = dataloader
+        self.iterator = iter(self.dataloader)
+
+    def get_next_batch(self):
+        try:
+            batch = next(self.iterator)
+        except StopIteration:
+            # Restart when we run out
+            self.iterator = iter(self.dataloader)
+            batch = next(self.iterator)
+        return batch

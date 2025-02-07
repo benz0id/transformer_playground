@@ -1,8 +1,9 @@
 import math
-
 import torch
 from torch import nn
+from utils.log_utils import setup_logger
 
+logger = setup_logger('position_encoder')
 
 def get_positional_encoding(seq_len: int, model_dim: int) -> torch.tensor:
     """
@@ -11,6 +12,8 @@ def get_positional_encoding(seq_len: int, model_dim: int) -> torch.tensor:
     :param model_dim: The model dimension.
     :return: A positional encoding
     """
+    logger.debug(f"Generating positional encoding for seq_len={seq_len}, model_dim={model_dim}")
+    
     encoding = torch.zeros(seq_len, model_dim, requires_grad=False)
     for pos in range(seq_len):
         for i in range(0, model_dim, 2):
@@ -19,6 +22,7 @@ def get_positional_encoding(seq_len: int, model_dim: int) -> torch.tensor:
         for i in range(1, model_dim, 2):
             encoding[pos, i] = math.cos(pos / 10000 ** (i / model_dim))
 
+    logger.debug(f"Generated encoding of shape {encoding.shape}")
     return encoding
 
 def get_positional_encoding_vectorized(seq_len: int, model_dim: int) -> torch.tensor:
@@ -27,9 +31,9 @@ def get_positional_encoding_vectorized(seq_len: int, model_dim: int) -> torch.te
     :param seq_len: The length of the sequence.
     :param model_dim: The model dimension.
     :return: A positional encoding
-
-    # TODO refactor for added efficiency.
     """
+    logger.debug(f"Generating vectorized positional encoding for seq_len={seq_len}, model_dim={model_dim}")
+    
     positions = torch.arange(0, seq_len).unsqueeze(-1)
     factors = (10000 ** (torch.arange(0, model_dim) / model_dim)).unsqueeze(0)
 
@@ -39,17 +43,17 @@ def get_positional_encoding_vectorized(seq_len: int, model_dim: int) -> torch.te
     vals[:, 1::2] = torch.cos(vals[:, 1::2])
 
     vals.requires_grad = False
+    logger.debug(f"Generated vectorized encoding of shape {vals.shape}")
     return vals
 
-
 class PositionalEncoding(nn.Module):
-
     def __init__(self, model_dim: int, max_len: int = 2000):
-        super().__init__(self)
-        self.pe = get_positional_encoding(max_len, model_dim)
+        super().__init__()
+        logger.debug(f"Initializing PositionalEncoding with model_dim={model_dim}, max_len={max_len}")
 
-        # Register as a buffer to become part of the model.
-        self.register_buffer('pe', self.pe)
+        # Register as a buffer to become part of the model
+        self.register_buffer('pe', get_positional_encoding(max_len, model_dim))
+        logger.debug(f"Registered positional encoding buffer of shape {self.pe.shape}")
 
     def get_encoding(self, seq_len: int):
         """
@@ -59,4 +63,7 @@ class PositionalEncoding(nn.Module):
             (seq_len, model_dim)
             float32
         """
-        return self.pe[:seq_len,:]
+        logger.debug(f"Retrieving encoding for sequence length {seq_len}")
+        encoding = self.pe[:seq_len,:]
+        logger.debug(f"Retrieved encoding of shape {encoding.shape}")
+        return encoding
